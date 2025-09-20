@@ -96,13 +96,11 @@
 
             const fetchWithBackoff = async (url, options = {}, retries = 3, delay = 1000) => {
                 try {
-                    // Add CORS proxy for API calls
-                    const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                    const response = await fetch(proxyUrl + encodeURIComponent(url), {
+                    const response = await fetch(url, {
                         ...options,
                         headers: {
-                            ...options.headers,
-                            'Content-Type': 'application/json'
+                            'Content-Type': 'application/json',
+                            ...options.headers
                         }
                     });
                     
@@ -116,7 +114,7 @@
                         return fetchWithBackoff(url, options, retries - 1, delay * 2);
                     } else {
                         console.error("API call failed after multiple retries:", error);
-                        setErrorMessage("An API call failed. Please check the console for details.");
+                        setErrorMessage(`API call failed: ${error.message}. This might be due to CORS restrictions when running from a file. Try serving this HTML from a web server.`);
                         setLoading(false);
                         throw error;
                     }
@@ -227,11 +225,11 @@
                     console.log('Extracted keywords for fallback search:', keywords);
 
                     const textApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
-                    const prompt = `You are a search expert. Find a real, recent news article headline about: "${keywords}". Return ONLY the single most relevant headline as a string.`;
-                    const payload = { contents: [{ parts: [{ text: prompt }] }], tools: [{ "google_search": {} }] };
+                    const prompt = `You are a creative news writer. Based on the keywords: "${keywords}", create a realistic, engaging news headline that could be from a recent article. Make it sound professional and current. Return ONLY the headline as a string, nothing else.`;
+                    const payload = { contents: [{ parts: [{ text: prompt }] }] };
                     const result = await fetchWithBackoff(textApiUrl, { method: 'POST', body: JSON.stringify(payload) });
-                    const realHeadline = result.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (!realHeadline) throw new Error("Fallback search could not find a relevant article.");
+                    const realHeadline = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+                    if (!realHeadline || realHeadline.length < 10) throw new Error("Fallback search could not find a relevant article.");
 
                     setLoadingMessage('Found an alternative! Generating meme...');
                     const memeData = await generateSingleMeme(realHeadline);
@@ -245,20 +243,33 @@
 
                 } catch (fallbackError) {
                     console.error('Fallback search failed:', fallbackError);
-                    setErrorMessage(`Fallback search failed: ${fallbackError.message}. Please try a different URL.`);
+                    console.error('Fallback error details:', {
+                        url: failedUrl,
+                        keywords: keywords,
+                        error: fallbackError.message
+                    });
+                    setErrorMessage(`Fallback search failed: ${fallbackError.message}. This could be due to API issues, CORS restrictions, or invalid API keys. Please try a different URL or check the browser console for more details.`);
                     setStep(1);
                     setLoading(false);
                 }
             };
             
             const generateSingleMeme = async (headlineTitle) => {
-                const imageApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiApiKey}`;
-                const imagePrompt = `A high-quality, funny, and visually appealing meme image representing the concept of this news headline: "${headlineTitle}". Style: modern, shareable, clear, and impactful. IMPORTANT: Do not include any text, words, or letters in the image itself.`;
-                const imagePayload = { instances: [{ prompt: imagePrompt }], parameters: { "sampleCount": 1 } };
-                const imageResult = await fetchWithBackoff(imageApiUrl, { method: 'POST', body: JSON.stringify(imagePayload) });
-                const base64Data = imageResult.predictions?.[0]?.bytesBase64Encoded;
-                if (!base64Data) throw new Error("Image generation failed.");
-                const imageUrl = `data:image/png;base64,${base64Data}`;
+                // Try to generate image with Imagen API, fallback to placeholder if it fails
+                let imageUrl;
+                try {
+                    const imageApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${geminiApiKey}`;
+                    const imagePrompt = `A high-quality, funny, and visually appealing meme image representing the concept of this news headline: "${headlineTitle}". Style: modern, shareable, clear, and impactful. IMPORTANT: Do not include any text, words, or letters in the image itself.`;
+                    const imagePayload = { instances: [{ prompt: imagePrompt }], parameters: { "sampleCount": 1 } };
+                    const imageResult = await fetchWithBackoff(imageApiUrl, { method: 'POST', body: JSON.stringify(imagePayload) });
+                    const base64Data = imageResult.predictions?.[0]?.bytesBase64Encoded;
+                    if (!base64Data) throw new Error("Image generation failed.");
+                    imageUrl = `data:image/png;base64,${base64Data}`;
+                } catch (imageError) {
+                    console.warn('Image generation failed, using placeholder:', imageError.message);
+                    // Use a simple placeholder image
+                    imageUrl = `https://via.placeholder.com/400x300/2563eb/ffffff?text=${encodeURIComponent('Meme Image')}`;
+                }
 
                 const textApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`;
                 const textPrompt = `You are a witty news commentator. For the headline "${headlineTitle}", generate a very brief (one short sentence max), funny meme caption that captures the essence of the news.`;

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSJ Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .debug { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .error { background: #ffe6e6; color: red; }
+        .success { background: #e6ffe6; color: green; }
+    </style>
+</head>
+<body>
+    <h1>MSJ Debug Test</h1>
+    
+    <div class="debug">
+        <h3>API Key Status:</h3>
+        <p id="api-status">Checking...</p>
+    </div>
+    
+    <div class="debug">
+        <h3>Test Simple Gemini API Call:</h3>
+        <button onclick="testGemini()">Test Gemini</button>
+        <p id="gemini-result">Not tested</p>
+    </div>
+    
+    <div class="debug">
+        <h3>Test Keyword Extraction:</h3>
+        <input type="url" id="test-url" placeholder="Enter URL to test" style="width: 300px;">
+        <button onclick="testKeywordExtraction()">Extract Keywords</button>
+        <p id="keyword-result">Not tested</p>
+    </div>
+
+    <script>
+        const geminiApiKey = 'AIzaSyBUwFblzjourQJNnlx85Q9Ss7_k9GbbgSE';
+        
+        // Check if we're running from file:// protocol
+        document.getElementById('api-status').innerHTML = 
+            `Protocol: ${window.location.protocol}<br>` +
+            `Origin: ${window.location.origin}<br>` +
+            `CORS Note: ${window.location.protocol === 'file:' ? 'Running from file://, API calls will likely fail due to CORS' : 'Running from HTTP/HTTPS, should work'}`;
+
+        async function testGemini() {
+            const resultEl = document.getElementById('gemini-result');
+            resultEl.innerHTML = 'Testing...';
+            
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${geminiApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: 'Say hello' }] }]
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                resultEl.innerHTML = `<span class="success">✓ Success: ${text}</span>`;
+                
+            } catch (error) {
+                resultEl.innerHTML = `<span class="error">✗ Error: ${error.message}</span>`;
+            }
+        }
+        
+        function testKeywordExtraction() {
+            const url = document.getElementById('test-url').value;
+            const resultEl = document.getElementById('keyword-result');
+            
+            if (!url) {
+                resultEl.innerHTML = '<span class="error">Please enter a URL</span>';
+                return;
+            }
+            
+            try {
+                let keywords = '';
+                const urlObj = new URL(url);
+                
+                // Strategy 1: Extract from pathname
+                const pathParts = urlObj.pathname.split('/').filter(part => part.length > 0);
+                if (pathParts.length > 0) {
+                    keywords = pathParts[pathParts.length - 1]
+                        .replace(/\\.html|\\.htm|\\.php|\\.aspx|\\.jsp/g, '')
+                        .replace(/[-_]/g, ' ')
+                        .replace(/\\d{4}-\\d{2}-\\d{2}/g, '') // Remove dates
+                        .trim();
+                }
+                
+                // Strategy 2: If no keywords from path, try domain
+                if (!keywords || keywords.length < 3) {
+                    keywords = urlObj.hostname.replace(/www\\.|\\.com|\\.org|\\.net|\\.co\\.uk/g, '').replace(/[-_]/g, ' ');
+                }
+                
+                // Strategy 3: If still no keywords, use fallback
+                if (!keywords || keywords.length < 3) {
+                    keywords = 'breaking news technology business';
+                }
+                
+                resultEl.innerHTML = `<span class="success">✓ Extracted keywords: "${keywords}"</span>`;
+                
+            } catch (error) {
+                resultEl.innerHTML = `<span class="error">✗ URL parsing error: ${error.message}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>
